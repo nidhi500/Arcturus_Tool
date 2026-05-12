@@ -418,12 +418,12 @@ async function generate() {
     generateBtn.innerText = "Generating...";
 
     try {
-        const response = await fetch("https://arcturus-tool.onrender.com/generate", {
+        const response = await fetch("[https://arcturus-tool.onrender.com/generate](https://arcturus-tool.onrender.com/generate)", {
              method: "POST",
              headers: { "Content-Type": "application/json" },
              body: JSON.stringify({ url: url })
             });
-            
+
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(errorText || "Something went wrong while generating the report.");
@@ -443,14 +443,18 @@ async function generate() {
 
         if (data.excel_url) {
             document.getElementById("excelLink").style.display = "inline-flex";
-            document.getElementById("excelLink").href = "http://127.0.0.1:8000" + data.excel_url;
+            // Change line 249
+            document.getElementById("excelLink").href = "[https://arcturus-tool.onrender.com](https://arcturus-tool.onrender.com)" + data.excel_url;
+
         } else {
             document.getElementById("excelLink").style.display = "none";
         }
 
         if (data.ppt_url) {
             document.getElementById("pptLink").style.display = "inline-flex";
-            document.getElementById("pptLink").href = "http://127.0.0.1:8000" + data.ppt_url;
+            
+// Change line 256
+            document.getElementById("pptLink").href = "[https://arcturus-tool.onrender.com](https://arcturus-tool.onrender.com)" + data.ppt_url;
         } else {
             document.getElementById("pptLink").style.display = "none";
         }
