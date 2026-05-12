@@ -5,9 +5,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from services.extractor import extract_features
-from services.excel_generator import generate_excel
-from services.ppt_generator import generate_ppt
+from backend.services.extractor import extract_features
+from backend.services.excel_generator import generate_excel
+from backend.services.ppt_generator import generate_ppt
 
 
 os.makedirs("outputs", exist_ok=True)
