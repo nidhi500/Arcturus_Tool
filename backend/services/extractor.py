@@ -3,6 +3,23 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 
+# In backend/services/extractor.py
+
+async def extract_features(url):
+    async with async_playwright() as p:
+        # These specific args are CRITICAL for Render's 512MB RAM limit
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage", # Uses /tmp instead of memory for shared heap
+                "--disable-gpu",            # Saves a massive amount of RAM
+                "--single-process"         # Reduces overhead (use with caution but good for low RAM)
+            ]
+        )
+        # ... rest of your code
+
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
 
