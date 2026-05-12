@@ -1,0 +1,208 @@
+from collections import defaultdict
+from pathlib import Path
+import os
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.dml.color import RGBColor
+from pptx.oxml import parse_xml
+from pptx.oxml.ns import nsdecls
+
+# Colors
+BLUE, DARK, WHITE = RGBColor(0, 153, 204), RGBColor(0, 0, 0), RGBColor(255, 255, 255)
+HEADER_BLUE = RGBColor(31, 78, 121)
+
+def safe_text(v): return "" if v is None else str(v).strip()
+
+def truncate_for_client(text, limit=300):
+    """Summarizes text into a clean, professional snippet."""
+    text = safe_text(text)
+    if len(text) <= limit: return text
+    truncated = text[:limit].rsplit(' ', 1)[0]
+    return truncated + "..."
+
+def normalize_priority(v):
+    val = safe_text(v).lower()
+    return val.capitalize() if val in ["high", "low", "skip"] else "Medium"
+
+def clear_slides(prs):
+    for i in range(len(prs.slides) - 1, -1, -1):
+        prs.part.drop_rel(prs.slides._sldIdLst[i].rId)
+        del prs.slides._sldIdLst[i]
+
+def add_clean_slide(prs):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    for shp in list(slide.shapes):
+        if shp.is_placeholder: slide.shapes._spTree.remove(shp.element)
+    return slide
+
+def set_cell_border(cell, color="000000", width="12700"):
+    tcPr = cell._tc.get_or_add_tcPr()
+    for tag in ["lnL", "lnR", "lnT", "lnB"]:
+        tcPr.append(parse_xml(f'<a:{tag} {nsdecls("a")} w="{width}"><a:solidFill><a:srgbClr val="{color}"/></a:solidFill><a:prstDash val="solid"/></a:{tag}>'))
+
+def add_branding(slide, prs, release, page_no):
+    for y, h, c in [(0, 0.12, BLUE), (prs.slide_height - Inches(0.2), 0.2, BLUE)]:
+        rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, y, prs.slide_width, Inches(h))
+        rect.fill.solid(); rect.fill.fore_color.rgb = c; rect.line.fill.background()
+    
+    logo_configs = [
+        ("assets/arcturus_logo.png", prs.slide_width - Inches(2.05), Inches(0.28), 1.65), 
+        ("assets/tid_logo.png", (prs.slide_width // 2) - Inches(0.35), prs.slide_height - Inches(0.85), 0.7)
+    ]
+    for path, x, y, w in logo_configs:
+        if os.path.exists(path): slide.shapes.add_picture(path, x, y, width=Inches(w))
+
+    for txt, x, w, align in [(f"Oracle Upgrade {release} - Confidential", 0, prs.slide_width, PP_ALIGN.CENTER), (str(page_no), prs.slide_width - Inches(0.5), 0.4, PP_ALIGN.RIGHT)]:
+        tb = slide.shapes.add_textbox(x, prs.slide_height - Inches(0.2), w, Inches(0.2))
+        p = tb.text_frame.paragraphs[0]
+        p.text = txt; p.font.size, p.font.color.rgb, p.alignment = Pt(5 if align==PP_ALIGN.CENTER else 6), WHITE, align
+
+def add_textbox(slide, l, t, w, h, txt, size=14, bold=False, align=PP_ALIGN.LEFT):
+    box = slide.shapes.add_textbox(l, t, w, h)
+    tf = box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = safe_text(txt)
+    p.font.name, p.font.size, p.font.bold, p.font.color.rgb, p.alignment = "Calibri", Pt(size), bold, DARK, align
+
+def set_cell_style(cell, txt, size=8.5, bold=False, color=DARK):
+    tf = cell.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = safe_text(txt)
+    p.font.name, p.font.size, p.font.bold, p.font.color.rgb = "Calibri", Pt(size), bold, color
+
+def add_title_slide(prs, release, rel_date, module, page):
+    slide = add_clean_slide(prs); add_branding(slide, prs, release, page)
+    y = prs.slide_height // 2 - Inches(1)
+    add_textbox(slide, Inches(1), y, prs.slide_width - Inches(2), Inches(0.5), f"Turlock Irrigation District : {release} Oracle Upgrades", 28, True, PP_ALIGN.CENTER)
+    add_textbox(slide, Inches(1), y + Inches(0.6), prs.slide_width - Inches(2), Inches(0.4), f"Oracle Fusion Cloud {module}", 22, False, PP_ALIGN.CENTER)
+    add_textbox(slide, Inches(1), y + Inches(1.1), prs.slide_width - Inches(2), Inches(0.3), rel_date, 14, False, PP_ALIGN.CENTER)
+
+def add_index_slide(prs, module_summaries, release, page):
+    slide = add_clean_slide(prs); add_branding(slide, prs, release, page)
+    add_textbox(slide, Inches(0.5), Inches(0.5), Inches(5), Inches(0.5), "Executive Summary: Upgrade Scope", 22, True)
+    
+    # Table-based Index for professional look
+    idx_table = slide.shapes.add_table(len(module_summaries) + 1, 2, Inches(0.8), Inches(1.4), Inches(8), Inches(0.4 * len(module_summaries))).table
+    idx_table.columns[0].width, idx_table.columns[1].width = Inches(6), Inches(2)
+    
+    for c, h in enumerate(["Module Name", "Feature Count"]):
+        cell = idx_table.cell(0, c)
+        cell.fill.solid(); cell.fill.fore_color.rgb = HEADER_BLUE
+        set_cell_style(cell, h, bold=True, color=WHITE); set_cell_border(cell)
+
+    for i, summary in enumerate(module_summaries, 1):
+        name, count = summary.split('|')
+        set_cell_style(idx_table.cell(i, 0), name, size=11)
+        set_cell_style(idx_table.cell(i, 1), count, size=11)
+        set_cell_border(idx_table.cell(i, 0)); set_cell_border(idx_table.cell(i, 1))
+
+def add_table_slide(prs, module, items, release, page_no, part_label=""):
+    slide = add_clean_slide(prs)
+    add_branding(slide, prs, release, page_no)
+    
+    # Title Alignment
+    title_text = f"{module} {part_label}".strip()
+    add_textbox(slide, Inches(0.42), Inches(0.48), Inches(6.2), Inches(0.35), title_text, size=16, bold=True)
+
+    # Table Setup
+    table_top = Inches(1.0)
+    calculated_heights = []
+    for item in items:
+        # Use client-ready truncation to determine row height
+        max_chars = max(len(truncate_for_client(item.get("description", ""))), 
+                        len(truncate_for_client(item.get("impact", ""))))
+        dynamic_h = max(1.2, min(1.8, max_chars * 0.0035))
+        calculated_heights.append(Inches(dynamic_h))
+
+    total_table_height = Inches(0.35) + sum(calculated_heights)
+    
+    # Create Table with 6 columns (Sr., Feature, Benefit, Impact, Priority, Mandatory)
+    table_shape = slide.shapes.add_table(len(items) + 1, 6, Inches(0.42), table_top, Inches(8.9), total_table_height)
+    table = table_shape.table
+
+    # Column Widths
+    wds = [0.5, 2.2, 2.2, 2.0, 1.0, 1.0]
+    for i, w in enumerate(wds):
+        table.columns[i].width = Inches(w)
+    
+    # Header Styling
+    table.rows[0].height = Inches(0.35)
+    headers = ["Sr.", f"{release} Feature", "Benefit", "Impact", "Priority", "Mandatory"]
+    for c, h in enumerate(headers):
+        cell = table.cell(0, c)
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = HEADER_BLUE
+        set_cell_style(cell, h, bold=True, color=WHITE)
+        set_cell_border(cell)
+
+    # Populate Content Rows
+    for r, feat in enumerate(items, start=1):
+        table.rows[r].height = calculated_heights[r-1]
+        vals = [
+            str(feat.get("_serial", r)), 
+            feat.get("title", ""), 
+            truncate_for_client(feat.get("description", "")), 
+            truncate_for_client(feat.get("impact") or feat.get("notes", "")), 
+            normalize_priority(feat.get("priority")),
+            feat.get("mandatory", "No")
+        ]
+        for c, v in enumerate(vals):
+            set_cell_style(table.cell(r, c), v)
+            set_cell_border(table.cell(r, c))
+
+    # --- FINAL ABSOLUTE BOTTOM-UP LINK PLACEMENT ---
+    # This anchors links to a safe zone ABOVE the bottom logo, 
+    # preventing overlap regardless of table height.
+    
+    safe_zone_bottom = prs.slide_height - Inches(1.1)
+    link_height = Inches(0.22)
+    
+    for i, feature in enumerate(items):
+        # Stack links from the bottom safe zone upwards
+        link_y_pos = safe_zone_bottom - (len(items) - i) * link_height
+        
+        # Add textbox only if it won't crash into the top header area
+        if link_y_pos > (table_top + total_table_height):
+            box = slide.shapes.add_textbox(Inches(0.55), link_y_pos, Inches(8.8), Inches(0.3))
+            p = box.text_frame.paragraphs[0]
+            p.text = truncate_for_client(feature.get("title", ""), 110)
+            p.font.size = Pt(8)
+            p.font.color.rgb = RGBColor(0, 102, 204)
+            p.font.underline = True
+            
+            # Apply hyperlink to the first run of text
+            try:
+                p.text_frame.paragraphs[0].runs[0].hyperlink.address = feature.get("url", "")
+            except Exception:
+                pass
+
+def generate_ppt(features, template_path, output_path):
+    prs = Presentation(template_path); clear_slides(prs)
+    if not features: prs.save(output_path); return
+    
+    rel, date = safe_text(features[0].get("release_version", "26B")), safe_text(features[0].get("release_date", ""))
+    page = 1
+    add_title_slide(prs, rel, date, safe_text(features[0].get("module")), page); page += 1
+    
+    valid = [f for f in features if normalize_priority(f.get("priority")) != "Skip"]
+    grouped = defaultdict(list)
+    for f in valid: grouped[safe_text(f.get("module")) or "Inventory Management"].append(f)
+    
+    # Professional Module Summary Index
+    module_summaries = [f"{mod}|{len(feats)}" for mod, feats in grouped.items()]
+    for i in range(0, len(module_summaries), 10):
+        if page <= 3: # 2 Page Limit
+            add_index_slide(prs, module_summaries[i:i+10], rel, page)
+            page += 1
+
+    for mod, mod_feats in grouped.items():
+        for i, f in enumerate(mod_feats, 1): f["_serial"] = i
+        chunks = [mod_feats[x:x+2] for x in range(0, len(mod_feats), 2)]
+        for i, chunk in enumerate(chunks, 1):
+            add_table_slide(prs, mod, chunk, rel, page, f"({i}/{len(chunks)})" if len(chunks)>1 else ""); page += 1
+    
+    prs.save(output_path)
