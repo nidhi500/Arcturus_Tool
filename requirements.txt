@@ -4,3 +4,4 @@ playwright
 python-pptx
 pandas
 beautifulsoup4
+openpyxl
