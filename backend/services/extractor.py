@@ -25,33 +25,34 @@ def get_release_date(release):
     return mapping.get(release.upper(), "")
 
 async def fetch_soup(url, p):
-    # Enterprise Optimization: Crucial for Render 512MB RAM
     browser = await p.chromium.launch(
         headless=True,
-        args=[
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu"
-        ]
+        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
     )
     context = await browser.new_context(viewport={'width': 1280, 'height': 800})
     page = await context.new_page()
+    
     try:
-        # Extended timeout for slow cloud CPUs
-        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+        # 1. Give the page plenty of time to load the basic HTML
+        await page.goto(url, timeout=90000, wait_until="networkidle")
         
-        # Stability: Wait specifically for the Oracle table
-        await page.wait_for_selector("table", timeout=30000)
+        # 2. Wait for the specific Oracle JET table body to render (This is the "secret sauce")
+        # We use a 45-second timeout because Render's CPU can be very slow
+        await page.wait_for_selector(".oj-table-body", timeout=45000)
+        
+        # 3. Extra 2-second sleep to ensure all rows are populated
+        import asyncio
+        await asyncio.sleep(2)
         
         html = await page.content()
     except Exception as e:
-        print(f"Extraction error at {url}: {e}")
-        html = ""
+        print(f"Scraper Timeout/Error: {e}")
+        html = "" # This triggers the 'No features found' error if it stays empty
     finally:
         await browser.close()
         
     soup = BeautifulSoup(html, "html.parser")
+    # ... rest of the cleanup logic ...
     for tag in soup(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
     return soup
