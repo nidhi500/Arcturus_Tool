@@ -47,29 +47,32 @@ async def generate_report(request: ReportRequest):
         with open(CACHE_FILE, "r") as f:
             try:
                 cache = json.load(f)
-                # Check if this exact URL and limit have been processed before
                 if request.url in cache and cache[request.url].get("limit_applied") == request.limit:
                     return cache[request.url]
             except json.JSONDecodeError:
                 pass
 
     try:
-        # 2. Extraction with Limit Parameter (Stage 2: Performance)
-        # We pass the limit directly to your extractor to save memory
-        features = extract_features(request.url)
+        # 1. Await the scraper result (Fixes 'coroutine' error)
+        features = await extract_features(request.url)
         
+        if not features:
+            raise HTTPException(status_code=400, detail="No features found at the provided URL.")
+
+        # 2. Apply the Limit Parameter
         if request.limit > 0:
             features = features[:request.limit]
 
         slug = output_slug_from_url(request.url)
 
-        # 3. Report Generation
+        # 3. Generate filenames and files
         excel_filename = f"oracle_{slug}_l{request.limit}.xlsx"
         ppt_filename = f"oracle_{slug}_l{request.limit}.pptx"
         
-        excel_path = generate_excel(features, f"outputs/{excel_filename}")
+        # Call synchronous generators
+        generate_excel(features, f"outputs/{excel_filename}")
         
-        # This looks inside the backend/templates folder as seen in image_aecb1b.png
+        # Ensure pathing for template is correct based on your folder structure
         template_path = os.path.join(os.path.dirname(__file__), "templates", "inventory_template.pptx")
         generate_ppt(features, template_path, f"outputs/{ppt_filename}")
 
@@ -83,7 +86,7 @@ async def generate_report(request: ReportRequest):
             "limit_applied": request.limit
         }
 
-        # 5. Save to Persistence Layer (Caching)
+        # 5. Save to Cache Registry (Stage 2 Completion)
         cache = {}
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r") as f:
@@ -99,6 +102,6 @@ async def generate_report(request: ReportRequest):
         return result
 
     except Exception as e:
-        # Detailed error for debugging deployment
-        print(f"Error during generation: {str(e)}")
+        # Log the specific error for Render debugging
+        print(f"CRITICAL ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
