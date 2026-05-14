@@ -228,6 +228,17 @@ def extract_features(url: str):
         
         detail = extract_feature_detail(feature_url.split("#")[0]) if ".htm" in feature_url else {}
         
+        # Inside your extract_features function
+        async with page:
+            await page.goto(url, wait_until="networkidle")
+    
+    # CRITICAL: Wait specifically for the Oracle feature table to appear
+    try:
+        await page.wait_for_selector(".oj-table-body", timeout=15000) 
+    except:
+        print("Timeout: Oracle table did not load in time.")
+        return [] # Returns empty if table never shows
+
         # MANDATORY LOGIC: Enabled = Yes, else No
         mandatory_val = "Yes" if delivery_stat == "Enabled" else "No"
 
