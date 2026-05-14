@@ -1,8 +1,7 @@
 import re
-import os
+import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from playwright.async_api import async_playwright
 
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
@@ -24,85 +23,66 @@ def get_release_date(release):
     }
     return mapping.get(release.upper(), "")
 
-async def fetch_soup(url, p):
-    browser = await p.chromium.launch(
-        headless=True,
-        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
-    )
-    context = await browser.new_context(viewport={'width': 1280, 'height': 800})
-    page = await context.new_page()
-    
-    try:
-        # 1. Give the page plenty of time to load the basic HTML
-        await page.goto(url, timeout=90000, wait_until="networkidle")
-        
-        # 2. Wait for the specific Oracle JET table body to render (This is the "secret sauce")
-        # We use a 45-second timeout because Render's CPU can be very slow
-        await page.wait_for_selector(".oj-table-body", timeout=45000)
-        
-        # 3. Extra 2-second sleep to ensure all rows are populated
-        import asyncio
-        await asyncio.sleep(2)
-        
-        html = await page.content()
-    except Exception as e:
-        print(f"Scraper Timeout/Error: {e}")
-        html = "" # This triggers the 'No features found' error if it stays empty
-    finally:
-        await browser.close()
-        
-    soup = BeautifulSoup(html, "html.parser")
-    # ... rest of the cleanup logic ...
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.decompose()
-    return soup
-
 async def extract_features(url: str):
     release = get_release(url)
     rel_date = get_release_date(release)
     slug = get_slug(url).upper()
-    
     features = []
+
+    # Stage 2 Strategy: Use HTTPX to bypass heavy browser overhead
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                print(f"Failed to fetch Oracle page: {response.status_code}")
+                return []
+            
+            html = response.text
+    except Exception as e:
+        print(f"Request Error: {e}")
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
     
-    async with async_playwright() as p:
-        soup = await fetch_soup(url, p)
-        rows = soup.find_all("tr")
+    # Target all table rows - Oracle often uses 'tr' for features even in JS-lite versions
+    rows = soup.find_all("tr")
+    
+    count = 0
+    for row in rows:
+        link = row.find("a", href=True)
+        if not link:
+            continue
+            
+        title = clean_text(link.get_text())
+        if len(title) < 10 or "Copyright" in title:
+            continue
+
+        count += 1
+        features.append({
+            "release_version": release,
+            "release_date": rel_date,
+            "module": "Oracle Cloud",
+            "feature_id": f"{slug}-{count:03d}",
+            "oracle_feature_id": f"F{count+10000}",
+            "title": title,
+            "delivery_status": "Enabled",
+            "action_required": "No Action Required",
+            "impact": "Small Scale",
+            "bug_ids": "",
+            "description": f"Upgrade feature: {title}.",
+            "steps_to_enable": "Available by default.",
+            "url": urljoin(url, link['href']),
+            "priority": "Medium",
+            "notes": "Generated via OQUAT Lightweight Scraper.",
+            "mandatory": "Yes"
+        })
         
-        if not rows:
-            return []
+        # Hard limit for stability
+        if count >= 20:
+            break
 
-        count = 0
-        for row in rows:
-            cells = row.find_all(["td", "th"])
-            if len(cells) < 2: continue
-            
-            link = row.find("a", href=True)
-            if not link: continue
-            
-            title = clean_text(link.get_text())
-            if "Title and Copyright" in title or len(title) < 5: continue
-
-            count += 1
-            features.append({
-                "release_version": release,
-                "release_date": rel_date,
-                "module": "Inventory Management", 
-                "feature_id": f"{slug}-{count:03d}",
-                "oracle_feature_id": f"F{count+10000}",
-                "title": title,
-                "delivery_status": "Enabled",
-                "action_required": "No Action Required",
-                "impact": "Small Scale",
-                "bug_ids": "",
-                "description": f"Upgrade details for {title}.",
-                "steps_to_enable": "Automatically available.",
-                "url": urljoin(url, link['href']),
-                "priority": "Medium",
-                "notes": "",
-                "mandatory": "Yes"
-            })
-            
-            # Limit parameter implementation
-            if count >= 15: break
-            
     return features
