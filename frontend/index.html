@@ -314,6 +314,11 @@ tr:hover { background: #f8fafc; }
 
     <div class="panel">
         <div class="input-row">
+            <select id="limitInput" style="padding: 10px; border-radius: 10px; border: 1px solid #cbd5e1;">
+                <option value="5">Quick Test (Top 5)</option>
+                <option value="10">Standard (Top 10)</option>
+                <option value="0">Full Report (Heavy)</option>
+            </select>
             <input id="urlInput" value="https://docs.oracle.com/en/cloud/saas/readiness/scm/26b/inv26b/index.html" />
             <button class="primary-btn" id="generateBtn" onclick="generate()">Generate Report</button>
         </div>
@@ -408,7 +413,9 @@ function showValue(value) {
 
 async function generate() {
     const url = document.getElementById("urlInput").value.trim();
+    const limit = document.getElementById("limitInput").value; // Capture the limit
     const generateBtn = document.getElementById("generateBtn");
+    
 
     document.getElementById("loader").style.display = "block";
     document.getElementById("resultBox").style.display = "none";
