@@ -56,7 +56,7 @@ async def generate_report(request: ReportRequest):
     try:
         # 2. Extraction with Limit Parameter (Stage 2: Performance)
         # We pass the limit directly to your extractor to save memory
-        features = await extract_features(request.url)
+        features = extract_features(request.url)
         
         if request.limit > 0:
             features = features[:request.limit]
