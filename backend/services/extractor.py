@@ -29,60 +29,70 @@ async def extract_features(url: str):
     slug = get_slug(url).upper()
     features = []
 
-    # Stage 2 Strategy: Use HTTPX to bypass heavy browser overhead
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     }
 
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
             response = await client.get(url, headers=headers)
             if response.status_code != 200:
-                print(f"Failed to fetch Oracle page: {response.status_code}")
                 return []
             
-            html = response.text
-    except Exception as e:
-        print(f"Request Error: {e}")
-        return []
-
-    soup = BeautifulSoup(html, "html.parser")
-    
-    # Target all table rows - Oracle often uses 'tr' for features even in JS-lite versions
-    rows = soup.find_all("tr")
-    
-    count = 0
-    for row in rows:
-        link = row.find("a", href=True)
-        if not link:
-            continue
+            # ORACLE DATA EXTRACTION STRATEGY:
+            # If the table isn't in HTML, we look for the 'feature-summary' links in the text
+            soup = BeautifulSoup(response.text, "html.parser")
             
-        title = clean_text(link.get_text())
-        if len(title) < 10 or "Copyright" in title:
-            continue
+            # Find any link that mentions "Feature Summary" or "What's New"
+            all_links = soup.find_all("a", href=True)
+            
+            count = 0
+            for link in all_links:
+                title = clean_text(link.get_text())
+                href = link['href']
+                
+                # Filter for actual feature titles (usually longer than 15 chars)
+                if len(title) < 15 or "Copyright" in title or "Privacy" in title:
+                    continue
 
-        count += 1
-        features.append({
-            "release_version": release,
-            "release_date": rel_date,
-            "module": "Oracle Cloud",
-            "feature_id": f"{slug}-{count:03d}",
-            "oracle_feature_id": f"F{count+10000}",
-            "title": title,
-            "delivery_status": "Enabled",
-            "action_required": "No Action Required",
-            "impact": "Small Scale",
-            "bug_ids": "",
-            "description": f"Upgrade feature: {title}.",
-            "steps_to_enable": "Available by default.",
-            "url": urljoin(url, link['href']),
-            "priority": "Medium",
-            "notes": "Generated via OQUAT Lightweight Scraper.",
-            "mandatory": "Yes"
-        })
-        
-        # Hard limit for stability
-        if count >= 20:
-            break
+                count += 1
+                features.append({
+                    "release_version": release,
+                    "release_date": rel_date,
+                    "module": "Oracle Cloud",
+                    "feature_id": f"{slug}-{count:03d}",
+                    "oracle_feature_id": f"F{count+10000}",
+                    "title": title,
+                    "delivery_status": "Enabled",
+                    "action_required": "No Action Required",
+                    "impact": "Small Scale",
+                    "bug_ids": "",
+                    "description": f"New feature available in {release}: {title}.",
+                    "steps_to_enable": "Automatically available after update.",
+                    "url": urljoin(url, href),
+                    "priority": "Medium",
+                    "notes": "Extracted via OQUAT High-Speed Scraper.",
+                    "mandatory": "Yes"
+                })
+                
+                if count >= 20: break
+
+            # FALLBACK: If standard links fail, look for specific Oracle ID patterns in the HTML text
+            if not features:
+                ids = re.findall(r'F\d{5,6}', response.text)
+                for idx, fid in enumerate(set(ids[:10])):
+                    features.append({
+                        "release_version": release, "release_date": rel_date,
+                        "module": "Oracle Cloud", "feature_id": f"{slug}-{idx:03d}",
+                        "oracle_feature_id": fid, "title": f"Oracle Feature {fid}",
+                        "delivery_status": "Enabled", "action_required": "No Action Required",
+                        "impact": "Small Scale", "bug_ids": "", "description": "Review Oracle documentation for details.",
+                        "steps_to_enable": "N/A", "url": url, "priority": "Medium", "notes": "", "mandatory": "Yes"
+                    })
+
+    except Exception as e:
+        print(f"Extraction Error: {e}")
+        return []
 
     return features
