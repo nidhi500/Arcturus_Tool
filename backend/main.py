@@ -69,7 +69,8 @@ async def generate_report(request: ReportRequest):
         
         excel_path = generate_excel(features, f"outputs/{excel_filename}")
         
-        template_path = "templates/inventory_template.pptx"
+        # This looks inside the backend/templates folder as seen in image_aecb1b.png
+        template_path = os.path.join(os.path.dirname(__file__), "templates", "inventory_template.pptx")
         generate_ppt(features, template_path, f"outputs/{ppt_filename}")
 
         # 4. Construct Result
