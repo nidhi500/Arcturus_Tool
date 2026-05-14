@@ -2,7 +2,7 @@ import re
 import os
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
@@ -24,9 +24,9 @@ def get_release_date(release):
     }
     return mapping.get(release.upper(), "")
 
-def fetch_soup(url, p):
-    # Optimized for Render's 512MB RAM
-    browser = p.chromium.launch(
+async def fetch_soup(url, p):
+    # Enterprise Optimization: Crucial for Render 512MB RAM
+    browser = await p.chromium.launch(
         headless=True,
         args=[
             "--no-sandbox",
@@ -35,58 +35,53 @@ def fetch_soup(url, p):
             "--disable-gpu"
         ]
     )
-    context = browser.new_context(viewport={'width': 1280, 'height': 800})
-    page = context.new_page()
+    context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+    page = await context.new_page()
     try:
-        # Increase timeout for slow Render CPUs
-        page.goto(url, timeout=90000, wait_until="domcontentloaded")
+        # Extended timeout for slow cloud CPUs
+        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
         
-        # Wait for the Oracle feature table to appear
-        page.wait_for_selector("table", timeout=30000)
+        # Stability: Wait specifically for the Oracle table
+        await page.wait_for_selector("table", timeout=30000)
         
-        html = page.content()
+        html = await page.content()
     except Exception as e:
         print(f"Extraction error at {url}: {e}")
         html = ""
     finally:
-        browser.close()
+        await browser.close()
         
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
     return soup
 
-def extract_features(url: str):
+async def extract_features(url: str):
     release = get_release(url)
     rel_date = get_release_date(release)
     slug = get_slug(url).upper()
     
     features = []
     
-    with sync_playwright() as p:
-        soup = fetch_soup(url, p)
+    async with async_playwright() as p:
+        soup = await fetch_soup(url, p)
         rows = soup.find_all("tr")
         
         if not rows:
-            print("No rows found in the table.")
             return []
 
         count = 0
         for row in rows:
             cells = row.find_all(["td", "th"])
-            if len(cells) < 2: 
-                continue
+            if len(cells) < 2: continue
             
             link = row.find("a", href=True)
-            if not link: 
-                continue
+            if not link: continue
             
             title = clean_text(link.get_text())
-            if "Title and Copyright" in title or len(title) < 5: 
-                continue
+            if "Title and Copyright" in title or len(title) < 5: continue
 
             count += 1
-            
             features.append({
                 "release_version": release,
                 "release_date": rel_date,
@@ -106,8 +101,7 @@ def extract_features(url: str):
                 "mandatory": "Yes"
             })
             
-            # Limit features to keep memory usage low on Render
-            if count >= 15: 
-                break
+            # Limit parameter implementation
+            if count >= 15: break
             
     return features
