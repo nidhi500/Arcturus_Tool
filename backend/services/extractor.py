@@ -77,3 +77,15 @@ async def enrich_all_features(injected_features):
         return await asyncio.gather(*tasks)
 
 # Keep your existing extract_feature_links function but make sure it returns the list of URLs
+
+# ... (all your existing fetch_detail_page and enrich_all_features code)
+
+async def extract_features(url: str):
+    """
+    Dummy/Fallback function to satisfy the import in main.py.
+    Since we are now using 'enrich_all_features' from the extension,
+    this just needs to exist to prevent the ImportError.
+    """
+    return []
+
+# Ensure these names exactly match what you are importing in main.py
