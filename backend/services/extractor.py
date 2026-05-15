@@ -114,6 +114,16 @@ async def enrich_all_features(injected_features):
             final_features.append(f)
         return final_features
 
-def extract_feature_links(url):
-    # This remains your existing link-finding logic...
+async def extract_features(url: str):
+    """
+    Fallback function to satisfy the import in main.py.
+    The primary logic now uses extract_feature_links + enrich_all_features.
+    """
+    return []
+
+def extract_feature_links(url: str):
+    """
+    Placeholder to prevent NameError in main.py.
+    Real link extraction happens via the Chrome Extension.
+    """
     return []
