@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Optional
 
 # Internal services
 from backend.services.extractor import extract_features
@@ -16,7 +17,6 @@ os.makedirs("outputs", exist_ok=True)
 app = FastAPI(title="OQUAT - Oracle Quarterly Upgrade Automation Tool")
 CACHE_FILE = "outputs/cache_registry.json"
 
-# Middleware and Static Files
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 app.add_middleware(
     CORSMiddleware,
@@ -28,13 +28,13 @@ app.add_middleware(
 
 class ReportRequest(BaseModel):
     url: str
-    limit: int = 0  # 0 means no limit
+    limit: int = 0
+    # This allows the Chrome Extension to "inject" real data
+    injected_features: Optional[List[dict]] = None 
 
 def output_slug_from_url(url: str):
     parts = url.rstrip("/").split("/")
-    if parts[-1] == "index.html":
-        return parts[-2]
-    return parts[-1]
+    return parts[-2] if parts[-1] == "index.html" else parts[-1]
 
 @app.get("/")
 def health_check():
@@ -42,59 +42,60 @@ def health_check():
 
 @app.post("/generate")
 async def generate_report(request: ReportRequest):
-    # 1. Persistence Check (Stage 2: Caching)
-    if os.path.exists(CACHE_FILE):
+    # 1. Caching Check
+    if os.path.exists(CACHE_FILE) and not request.injected_features:
         with open(CACHE_FILE, "r") as f:
             try:
                 cache = json.load(f)
                 if request.url in cache and cache[request.url].get("limit_applied") == request.limit:
                     return cache[request.url]
-            except json.JSONDecodeError:
-                pass
+            except: pass
 
     try:
-        # 1. Await the scraper result (Fixes 'coroutine' error)
-        features = await extract_features(request.url)
-        
-        if not features:
-            raise HTTPException(status_code=400, detail="No features found at the provided URL.")
+        # 2. Data Sourcing: Use Extension data if provided, else scrape
+        if request.injected_features:
+            features = request.injected_features
+            # Ensure we apply enterprise fields to injected data
+            slug_val = output_slug_from_url(request.url).upper()
+            for i, feat in enumerate(features):
+                feat.setdefault("release_version", "26B")
+                feat.setdefault("release_date", "May 2026")
+                feat.setdefault("feature_id", f"{slug_val}-{i+1:03d}")
+                feat.setdefault("delivery_status", "Enabled")
+                feat.setdefault("impact", "Small Scale")
+        else:
+            features = await extract_features(request.url)
 
-        # 2. Apply the Limit Parameter
+        if not features:
+            raise HTTPException(status_code=400, detail="No features found.")
+
         if request.limit > 0:
             features = features[:request.limit]
 
         slug = output_slug_from_url(request.url)
-
-        # 3. Generate filenames and files
-        excel_filename = f"oracle_{slug}_l{request.limit}.xlsx"
-        ppt_filename = f"oracle_{slug}_l{request.limit}.pptx"
+        excel_fn = f"oracle_{slug}_l{request.limit}.xlsx"
+        ppt_fn = f"oracle_{slug}_l{request.limit}.pptx"
         
-        # Call synchronous generators
-        generate_excel(features, f"outputs/{excel_filename}")
-        
-        # Ensure pathing for template is correct based on your folder structure
+        # 3. Generate Reports
+        generate_excel(features, f"outputs/{excel_fn}")
         template_path = os.path.join(os.path.dirname(__file__), "templates", "inventory_template.pptx")
-        generate_ppt(features, template_path, f"outputs/{ppt_filename}")
+        generate_ppt(features, template_path, f"outputs/{ppt_fn}")
 
-        # 4. Construct Result
         result = {
             "message": "Reports generated successfully",
             "feature_count": len(features),
-            "excel_url": f"/outputs/{excel_filename}",
-            "ppt_url": f"/outputs/{ppt_filename}",
+            "excel_url": f"/outputs/{excel_fn}",
+            "ppt_url": f"/outputs/{ppt_fn}",
             "features": features,
             "limit_applied": request.limit
         }
 
-        # 5. Save to Cache Registry (Stage 2 Completion)
+        # 4. Save to Cache
         cache = {}
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r") as f:
-                try:
-                    cache = json.load(f)
-                except json.JSONDecodeError:
-                    pass
-        
+                try: cache = json.load(f)
+                except: pass
         cache[request.url] = result
         with open(CACHE_FILE, "w") as f:
             json.dump(cache, f)
@@ -102,6 +103,5 @@ async def generate_report(request: ReportRequest):
         return result
 
     except Exception as e:
-        # Log the specific error for Render debugging
-        print(f"CRITICAL ERROR: {str(e)}")
+        print(f"Server Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
