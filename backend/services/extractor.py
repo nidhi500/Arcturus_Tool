@@ -91,31 +91,28 @@ async def extract_features(url: str):
 # Ensure these names exactly match what you are importing in main.py
 
 def extract_feature_links(index_url):
-    """Fallback link extractor if extension data isn't used."""
+    """Fallback link extractor using httpx to avoid 'requests' dependency issues."""
     if index_url.endswith("/"):
         index_url += "index.html"
 
-    # Minimal implementation to satisfy the import and basic scraping
     try:
-        # Note: Since this is a sync call in an async-heavy file, 
-        # we'll use a basic request. If you use Playwright locally, 
-        # ensure it's installed on Render.
-        import requests
+        import httpx  # Use httpx since it's already in your project
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(index_url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        feature_links = []
-        for link in soup.find_all("a", href=True):
-            title = link.get_text().strip()
-            href = link.get("href")
-            # Filter for actual feature links (usually start with release code)
-            if len(title) > 10 and any(x in href for x in ["-wn-f", "-wn-t"]):
-                feature_links.append({
-                    "title": title,
-                    "url": urljoin(index_url, href)
-                })
-        return feature_links
+        # Use a synchronous call here since this specific function isn't async
+        with httpx.Client(headers=headers, follow_redirects=True, timeout=10) as client:
+            response = client.get(index_url)
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            feature_links = []
+            for link in soup.find_all("a", href=True):
+                title = link.get_text().strip()
+                href = link.get("href")
+                if len(title) > 10 and any(x in href for x in ["-wn-f", "-wn-t"]):
+                    feature_links.append({
+                        "title": title,
+                        "url": urljoin(index_url, href)
+                    })
+            return feature_links
     except Exception as e:
         print(f"Link extraction failed: {e}")
         return []
