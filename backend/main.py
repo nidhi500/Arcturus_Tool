@@ -44,33 +44,23 @@ def health_check():
 
 @app.post("/generate")
 async def generate_report(request: GenerateRequest):
-    # USE THE DATA FROM THE EXTENSION IF AVAILABLE
-    if request.injected_features:
-        print(f"Using {len(request.injected_features)} features from Extension")
-        features_to_process = request.injected_features
-    else:
-        # Fallback: Scrape links from the URL (The part that was causing the NameError)
-        print("No extension data found. Falling back to manual scrape...")
-        features_to_process = extract_feature_links(request.url) 
+    # Use extension data if available
+    features_to_process = request.injected_features if request.injected_features else extract_feature_links(request.url)
     
     if not features_to_process:
-        raise HTTPException(status_code=400, detail="No features found to process.")
+        raise HTTPException(status_code=400, detail="No features found.")
 
-    # RUN THE ENRICHMENT (This visits the 60 sub-pages)
-    features = await enrich_all_features(features_to_process)
+    # Trigger the Brain-Powered Enrichment
+    enriched_features = await enrich_all_features(features_to_process)
     
     slug = output_slug_from_url(request.url)
     excel_path = f"outputs/oracle_{slug}.xlsx"
-    ppt_path = f"outputs/oracle_{slug}.pptx"
     
-    # Generate Files
-    generate_excel(features, excel_path)
-    # Note: Ensure your PPT generator is updated to take only 2 args if that's what we changed
-    # generate_ppt(features, ppt_path) 
+    # Generate the formatted Excel
+    generate_excel(enriched_features, excel_path)
     
     return {
         "status": "Ready",
-        "feature_count": len(features),
-        "excel_url": f"/outputs/oracle_{slug}.xlsx",
-        "ppt_url": f"/outputs/oracle_{slug}.pptx"
+        "feature_count": len(enriched_features),
+        "excel_url": f"/outputs/oracle_{slug}.xlsx"
     }
