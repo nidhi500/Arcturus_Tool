@@ -36,48 +36,22 @@ def health_check():
     return {"message": "OQUAT backend is running", "status": "Ready"}
 
 @app.post("/generate")
-async def generate_report(request: Request):
-    data = await request.json()
-    url = data.get("url", "")
-    injected_features = data.get("injected_features", [])
+async def generate_report(request: GenerateRequest):
+    # 1. Get the 60 links from the summary page
+    # (Using your existing extract_feature_links logic)
+    raw_features = extract_feature_links(request.url) 
     
-    if not url:
-        raise HTTPException(status_code=400, detail="URL is required")
-
-    slug = output_slug_from_url(url)
+    # 2. RUN THE ENRICHMENT (This fills the empty columns)
+    features = await enrich_all_features(raw_features)
     
-    # STEP 1: Data Gathering & Enrichment
-    if injected_features:
-        # We use the new parallel crawler to visit all 60+ pages
-        print(f"Enriching {len(injected_features)} features for {slug}...")
-        features = await enrich_all_features(injected_features)
-    else:
-        # Standard fallback if extension data isn't provided
-        features = await extract_features(url)
-
-    if not features:
-        raise HTTPException(status_code=404, detail="No features extracted")
-
-    # STEP 2: File Generation
-    excel_filename = f"{slug}_report.xlsx"
-    ppt_filename = f"{slug}_deck.pptx"
+    slug = output_slug_from_url(request.url)
+    excel_path = f"outputs/oracle_{slug}.xlsx"
     
-    excel_path = f"outputs/{excel_filename}"
-    ppt_path = f"outputs/{ppt_filename}"
-
-    # Generate the actual files
-    try:
-        generate_excel(features, excel_path)
-        generate_ppt(features, ppt_path)
-    except Exception as e:
-        print(f"Generation Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generating files: {str(e)}")
-
-    # STEP 3: Return links (Render serves /outputs/ via StaticFiles)
+    # 3. Generate the Excel with the now-populated data
+    generate_excel(features, excel_path)
+    
     return {
         "status": "Ready",
-        "total": len(features),
-        "release": slug.upper(),
-        "excel_link": f"/outputs/{excel_filename}",
-        "ppt_link": f"/outputs/{ppt_filename}"
+        "feature_count": len(features),
+        "excel_url": f"/outputs/oracle_{slug}.xlsx"
     }

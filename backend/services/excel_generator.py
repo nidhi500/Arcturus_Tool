@@ -17,24 +17,25 @@ def generate_excel(features, output_path: str):
     output.parent.mkdir(parents=True, exist_ok=True)
 
     rows = []
-    for idx, f in enumerate(features, start=1):
-        rows.append({
-            "Release Version": f.get("release_version", "26B"),
-            "Release Date": f.get("release_date", "May 2026"),
-            "Module": f.get("module", "Inventory Management"),
-            "Generated Feature ID": f"INV26B-{idx:03d}",
-            "Oracle Feature ID": f.get("oracle_feature_id", "N/A"),
-            "Title": f.get("title", ""),
-            "Delivery Status": f.get("delivery_status", "Enabled"),
-            "Action Required": f.get("action_required", "No Action Required"),
-            "Impact": f.get("impact", "Small Scale"),
-            "Bug IDs": f.get("bug_ids", "None"),
-            "Description": f.get("description", ""),
-            "Steps to Enable": f.get("steps_to_enable", "Automatically enabled."),
-            "URL": f.get("url", ""),
-            "Priority": f.get("priority", "Medium"),
-            "Notes": f.get("notes", "")
-        })
+    # Inside generate_excel
+for idx, feature in enumerate(features, start=1):
+    ws.append([
+        "26B", # Hardcoded or passed from release
+        "May 2026",
+        feature.get("module", "Inventory Management"),
+        f"INV-{idx:03d}",
+        feature.get("oracle_feature_id", "N/A"),
+        feature.get("title", ""),
+        feature.get("delivery_status", "Enabled"),
+        feature.get("action_required", "No Action Required"),
+        feature.get("impact", "Small Scale"),
+        feature.get("bug_ids", "None"),
+        feature.get("description", "Refer to Oracle Docs"),
+        feature.get("steps_to_enable", "Automatically enabled."),
+        feature.get("url", ""),
+        feature.get("priority", "Low"),
+        feature.get("notes", "")
+    ])
 
     df = pd.DataFrame(rows, columns=COLUMNS)
     summary_df = build_summary(df)
