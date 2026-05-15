@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 # Internal services
-from backend.services.extractor import extract_features, enrich_all_features
+from backend.services.extractor import enrich_all_features  # Removed extract_features if you aren't using it
 from backend.services.excel_generator import generate_excel
 from backend.services.ppt_generator import generate_ppt
 
