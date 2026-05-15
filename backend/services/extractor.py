@@ -52,35 +52,64 @@ def analyze_intelligence(title, steps, description):
     return status, action, impact, priority
 
 async def fetch_detail_page(client, feature):
-    """Deep-scrapes sub-pages with enhanced selector logic."""
+    """Production-grade scraper with fallback selectors for Oracle SCM templates."""
     async with semaphore:
         try:
             url = feature.get('url', '')
             if not url or "javascript" in url: return feature
 
-            response = await client.get(url, timeout=15.0)
+            response = await client.get(url, timeout=20.0)
             if response.status_code != 200: return feature
+
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # FIX: Real Description Scraping
-            desc_area = soup.find('section', id=re.compile(r'description|overview', re.I)) or \
-                        soup.find('div', class_=re.compile(r'section|content', re.I))
-            if desc_area:
-                p_text = " ".join([p.get_text().strip() for p in desc_area.find_all('p') if len(p.get_text()) > 30])
-                feature['description'] = p_text if p_text else "Details available in Oracle Cloud Readiness."
+            # --- 1. DESCRIPTION FIX (Targeting the 'What's New' content) ---
+            # Oracle often uses sections with IDs like 'section_123' or 'description'
+            description_text = ""
+            desc_container = soup.find('section', id=re.compile(r'description|overview|feature_summary', re.I)) or \
+                             soup.find('div', id='main-content') or \
+                             soup.find('article')
             
-            # FIX: Steps to Enable Scraping
-            steps_area = soup.find('section', id=re.compile(r'steps-to-enable|setup', re.I))
-            feature['steps_to_enable'] = steps_area.get_text(separator=' ').strip() if steps_area else "Automatically enabled."
+            if desc_container:
+                # Get the first two substantial paragraphs
+                paras = [p.get_text().strip() for p in desc_container.find_all('p') 
+                         if len(p.get_text().strip()) > 40 and "oracle" not in p.get_text().lower()[:20]]
+                description_text = " ".join(paras[:2])
 
-            # Oracle ID & Bugs
-            id_match = re.search(r"\b[FT]\d{5,6}\b", response.text)
-            if id_match: feature['oracle_feature_id'] = id_match.group().upper()
-            bugs = re.findall(r"\b\d{8}\b", response.text)
-            feature['bug_ids'] = ", ".join(set(bugs)) if bugs else "None"
+            feature['description'] = description_text if description_text else "Strategic enhancement for " + feature['title']
+
+            # --- 2. STEPS TO ENABLE FIX (Targeting the technical setup) ---
+            steps_text = ""
+            # Strategy: Find the Header that contains 'Steps to Enable' and grab everything until the next Header
+            steps_header = soup.find(lambda tag: tag.name in ['h2', 'h3', 'h4'] and 
+                                    any(x in tag.text for x in ["Steps to Enable", "How to Enable", "Setup"]))
+            
+            if steps_header:
+                content_parts = []
+                for sibling in steps_header.find_next_siblings():
+                    if sibling.name in ['h2', 'h3', 'h4']: break # Stop at the next major section
+                    content_parts.append(sibling.get_text(separator=' ').strip())
+                steps_text = " ".join(content_parts)
+            
+            # Final fallback if the header-search failed
+            if not steps_text:
+                steps_section = soup.find('section', id=re.compile(r'steps|setup|enable', re.I))
+                steps_text = steps_section.get_text(separator=' ').strip() if steps_section else "Automatically enabled."
+
+            feature['steps_to_enable'] = steps_text
+
+            # --- 3. AUTO-DETECTION OF SETUP (Syncing Action Required) ---
+            lower_steps = steps_text.lower()
+            if any(word in lower_steps for word in ["opt in", "profile option", "setup and maintenance", "provision"]):
+                feature['action_required'] = "Setup Required"
+                feature['delivery_status'] = "Disabled"
+            else:
+                feature['action_required'] = "No Action Required"
+                feature['delivery_status'] = "Enabled"
 
         except Exception as e:
-            print(f"Crawl Error: {e}")
+            print(f"Deep Scrape Error on {feature['title']}: {e}")
+            
         return feature
 
 async def enrich_all_features(injected_features):
