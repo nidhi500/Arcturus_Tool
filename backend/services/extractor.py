@@ -7,59 +7,44 @@ import re
 semaphore = asyncio.Semaphore(10)
 
 async def fetch_detail_page(client, feature):
-    """Visits the sub-link for a single feature to extract deep details."""
-    async with semaphore:
-        try:
-            # Oracle URLs are often relative; ensure we have a full URL
-            url = feature.get('url', '')
-            if not url or url.startswith('javascript'):
-                return feature
+    try:
+        response = await client.get(feature['url'], timeout=15.0)
+        if response.status_code != 200: return feature
 
-            response = await client.get(url, timeout=15.0)
-            if response.status_code != 200:
-                return feature
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # 1. Extract Description
-            # Oracle uses <section id="description"> or generic <div> classes
-            desc_sect = soup.find('section', {'id': 'description'}) or soup.find('div', {'class': 'section'})
-            if desc_sect:
-                # Get the first two paragraphs for a clean summary
-                paragraphs = desc_sect.find_all('p')
-                text = " ".join([p.get_text() for p in paragraphs[:2]])
-                feature['description'] = text[:1000] if text else "Review full documentation for details."
-            
-            # 2. Extract Steps to Enable (The "Consulting Gold")
-            steps_sect = soup.find('section', {'id': 'steps-to-enable'}) or soup.find('div', {'id': 'setup'})
-            if steps_sect:
-                feature['steps_to_enable'] = steps_sect.get_text(separator=' ').strip()
-                # Determine Action Required based on Enablement text
-                if "opt-in" in feature['steps_to_enable'].lower() or "setup" in feature['steps_to_enable'].lower():
-                    feature['action_required'] = "Setup Required"
-                    feature['priority'] = "High"
-                else:
-                    feature['action_required'] = "No Action Required"
-                    feature['priority'] = "Medium"
-            else:
-                feature['steps_to_enable'] = "Automatically enabled."
-                feature['action_required'] = "No Action Required"
-                feature['priority'] = "Low"
-
-            # 3. Extract Bug IDs (8-digit numbers)
-            bug_match = re.findall(r'\b\d{8}\b', response.text)
-            feature['bug_ids'] = ", ".join(set(bug_match)) if bug_match else "None"
-            
-            # 4. Set default Impact if missing
-            if not feature.get('impact'):
-                feature['impact'] = "Significant" if feature['priority'] == "High" else "Small Scale"
-
-        except Exception as e:
-            print(f"Error crawling {feature.get('title')}: {e}")
-            feature['description'] = "Details available in Oracle Cloud Readiness."
-            feature['steps_to_enable'] = "Refer to source URL."
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        return feature
+        # 1. FIND DESCRIPTION: Look for the main content div or sections
+        # Oracle uses different IDs like 'description', 'feature-overview', etc.
+        desc_area = soup.find('section', id=re.compile('description|overview', re.I)) or \
+                    soup.find('div', class_='section')
+        
+        if desc_area:
+            # Grab all paragraphs in that section
+            p_text = " ".join([p.get_text().strip() for p in desc_area.find_all('p')])
+            feature['description'] = p_text[:600] + "..." if len(p_text) > 600 else p_text
+
+        # 2. FIND STEPS TO ENABLE: Look for the 'setup' or 'enablement' section
+        steps_area = soup.find('section', id=re.compile('steps-to-enable|how-to-enable|setup', re.I))
+        if steps_area:
+            feature['steps_to_enable'] = steps_area.get_text(separator=' ').strip()
+            
+            # 3. DYNAMIC PRIORITY: If it's not automatic, it's High Priority
+            setup_text = feature['steps_to_enable'].lower()
+            if any(word in setup_text for word in ["opt-in", "setup", "enable", "config"]):
+                feature['action_required'] = "Setup Required"
+                feature['priority'] = "High"
+                feature['impact'] = "Significant"
+            else:
+                feature['action_required'] = "No Action Required"
+                feature['priority'] = "Medium"
+        else:
+            feature['steps_to_enable'] = "Automatically enabled. Review for business impact."
+            feature['priority'] = "Low"
+
+    except Exception as e:
+        print(f"Detail Fetch Error for {feature['title']}: {e}")
+    
+    return feature
 
 async def enrich_all_features(injected_features):
     """Parallel crawler to fill the empty columns for all features."""
