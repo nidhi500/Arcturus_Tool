@@ -7,44 +7,57 @@ import re
 semaphore = asyncio.Semaphore(10)
 
 async def fetch_detail_page(client, feature):
-    try:
-        response = await client.get(feature['url'], timeout=15.0)
-        if response.status_code != 200: return feature
+    """Deep-scrapes sub-pages to fill Description, Steps, and Priority."""
+    async with semaphore:
+        try:
+            url = feature.get('url', '')
+            if not url or "javascript" in url: return feature
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 1. FIND DESCRIPTION: Look for the main content div or sections
-        # Oracle uses different IDs like 'description', 'feature-overview', etc.
-        desc_area = soup.find('section', id=re.compile('description|overview', re.I)) or \
-                    soup.find('div', class_='section')
-        
-        if desc_area:
-            # Grab all paragraphs in that section
-            p_text = " ".join([p.get_text().strip() for p in desc_area.find_all('p')])
-            feature['description'] = p_text[:600] + "..." if len(p_text) > 600 else p_text
+            response = await client.get(url, timeout=15.0)
+            if response.status_code != 200: return feature
 
-        # 2. FIND STEPS TO ENABLE: Look for the 'setup' or 'enablement' section
-        steps_area = soup.find('section', id=re.compile('steps-to-enable|how-to-enable|setup', re.I))
-        if steps_area:
-            feature['steps_to_enable'] = steps_area.get_text(separator=' ').strip()
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 3. DYNAMIC PRIORITY: If it's not automatic, it's High Priority
-            setup_text = feature['steps_to_enable'].lower()
-            if any(word in setup_text for word in ["opt-in", "setup", "enable", "config"]):
-                feature['action_required'] = "Setup Required"
-                feature['priority'] = "High"
-                feature['impact'] = "Significant"
-            else:
-                feature['action_required'] = "No Action Required"
-                feature['priority'] = "Medium"
-        else:
-            feature['steps_to_enable'] = "Automatically enabled. Review for business impact."
-            feature['priority'] = "Low"
+            # 1. SMART DESCRIPTION SEARCH
+            # Look for ANY section that smells like a description or overview
+            desc_area = soup.find('section', id=re.compile(r'description|overview|feature', re.I)) or \
+                        soup.find('div', class_=re.compile(r'section|content', re.I))
+            
+            if desc_area:
+                paragraphs = desc_area.find_all('p')
+                # Join first two paragraphs for a professional summary
+                text = " ".join([p.get_text().strip() for p in paragraphs[:2]])
+                feature['description'] = text[:600] + "..." if len(text) > 600 else text
 
-    except Exception as e:
-        print(f"Detail Fetch Error for {feature['title']}: {e}")
-    
-    return feature
+            # 2. SMART ENABLEMENT SEARCH
+            # Look for the setup instructions
+            steps_area = soup.find('section', id=re.compile(r'steps-to-enable|setup|enable', re.I))
+            if steps_area:
+                steps_text = steps_area.get_text(separator=' ').strip()
+                feature['steps_to_enable'] = steps_text
+                
+                # 3. DYNAMIC PRIORITY LOGIC
+                # If the feature requires setup or opt-in, it's high priority
+                check_text = steps_text.lower()
+                if any(word in check_text for word in ["opt-in", "setup", "configure", "enable"]):
+                    feature['action_required'] = "Setup Required"
+                    feature['priority'] = "High"
+                    feature['impact'] = "Significant"
+                else:
+                    feature['action_required'] = "No Action Required"
+                    feature['priority'] = "Medium"
+            else:
+                feature['steps_to_enable'] = "Automatically enabled. No configuration required."
+                feature['priority'] = "Low"
+
+            # 4. BUG ID EXTRACTION
+            bugs = re.findall(r'\b\d{8}\b', response.text)
+            feature['bug_ids'] = ", ".join(set(bugs)) if bugs else "None"
+
+        except Exception as e:
+            print(f"Crawl Error [{feature.get('title')}]: {e}")
+            
+        return feature
 
 async def enrich_all_features(injected_features):
     """Parallel crawler to fill the empty columns for all features."""
