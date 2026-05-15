@@ -15,6 +15,13 @@ from backend.services.ppt_generator import generate_ppt
 # Ensure output directory exists
 os.makedirs("outputs", exist_ok=True)
 
+# 1. DEFINE THE CLASS FIRST
+class GenerateRequest(BaseModel):
+    url: str
+    limit: int = 0
+    injected_features: list = None
+
+# 2. THEN INITIALIZE THE APP
 app = FastAPI(title="OQUAT - Oracle Quarterly Upgrade Automation Tool")
 
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
