@@ -33,10 +33,17 @@ def add_clean_slide(prs):
     return slide
 
 def set_cell_border(cell, color="D3D3D3", width="12700"):
-    """Applies clean, executive gray cell borders to enhance scannability."""
+    """Applies clean, executive gray cell borders using strictly compliant OOXML namespaces."""
     tcPr = cell._tc.get_or_add_tcPr()
     for tag in ["lnL", "lnR", "lnT", "lnB"]:
-        tcPr.append(parse_xml(f'<a:{tag} {nsdecls("a")} w="{width}"><a:solidFill><a:srgbClr val="{color}"/></a:srgbClr><a:prstDash val="solid"/></a:{tag}>'))
+        # Completely eliminate the nested tag mismatch by enforcing absolute namespace tokens
+        xml_string = (
+            f'<a:{tag} {nsdecls("a")} w="{width}">'
+            f'  <a:solidFill><a:srgbClr val="{color}"/></a:solidFill>'
+            f'  <a:prstDash val="solid"/>'
+            f'</a:{tag}>'
+        )
+        tcPr.append(parse_xml(xml_string))
 
 def add_branding(slide, prs, release, page_no):
     """Draws consistent company accents, page pagination anchors, and secure logs."""
