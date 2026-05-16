@@ -88,28 +88,39 @@ async def fetch_detail_page(client, feature):
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 1. DYNAMIC SUB-MODULE HARVESTER
-            # Finds Oracle's native breadcrumb link path or page categorization layouts
+            # 1. DYNAMIC SUB-MODULE HARVESTER (Multi-layered failover parsing)
             discovered_submodule = ""
-            breadcrumb = soup.find('div', class_=re.compile(r'breadcrumb|nav', re.I)) or \
-                         soup.find('ul', class_=re.compile(r'breadcrumb|nav', re.I))
             
-            if breadcrumb:
-                links = breadcrumb.find_all('a')
-                if len(links) >= 2:
-                    # Usually the last active link or secondary anchor points to the exact sub-module tracking track
-                    discovered_submodule = links[-1].get_text().strip()
-            
-            # Fallback search option: Look for an overview header block or meta properties
+            # Layer A: Check standard Oracle readiness sub-header elements
+            sub_header = soup.find('p', class_=re.compile(r'sub-header|subtitle|meta', re.I))
+            if sub_header and len(sub_header.get_text().strip()) < 50:
+                discovered_submodule = sub_header.get_text().strip()
+                
+            # Layer B: Scan breadcrumb trees with flexible selectors
             if not discovered_submodule:
-                meta_section = soup.find(lambda tag: tag.name in ['p', 'span', 'div'] and 
-                                         any(kw in tag.text for kw in ["Module:", "Product:", "Functional Area:"]))
-                if meta_section:
-                    discovered_submodule = re.sub(r".*?:", "", meta_section.get_text()).strip()
+                breadcrumb = soup.find(lambda tag: tag.name in ['div', 'ul', 'ol', 'nav'] and 
+                                       any(cl in str(tag.get('class', '')).lower() for cl in ['breadcrumb', 'nav', 'path']))
+                if breadcrumb:
+                    links = breadcrumb.find_all(['a', 'li'])
+                    if len(links) >= 2:
+                        discovered_submodule = links[-1].get_text().strip()
 
-            # Clean and clean the string value; fallback to base extension model value if completely missing
-            feature['dynamic_module'] = clean_text(discovered_submodule) if discovered_submodule else feature.get('module', 'Inventory Management')
+            # Layer C: Look for explicit labeled text block structures (e.g., "Functional Area: Receiving")
+            if not discovered_submodule:
+                labeled_meta = soup.find(lambda tag: tag.name in ['p', 'span', 'div', 'td'] and 
+                                         any(kw in tag.text for kw in ["Functional Area:", "Product:", "Submodule:"]))
+                if labeled_meta:
+                    discovered_submodule = re.sub(r".*?:", "", labeled_meta.get_text()).strip()
 
+            # Layer D: Clean up string leaks (if it grabs the main title or code blocks accidentally)
+            discovered_submodule = clean_text(discovered_submodule)
+            if discovered_submodule and (len(discovered_submodule) > 45 or "what's new" in discovered_submodule.lower()):
+                discovered_submodule = ""
+
+            # Assign dynamic module with final safety fallback to the original extension payload string
+            feature['dynamic_module'] = discovered_submodule if discovered_submodule else feature.get('module', 'Inventory Management')
+
+            
             # 2. Extract Description Text Block
             desc_text = ""
             desc_area = soup.find('section', id=re.compile(r'description|overview', re.I)) or \
