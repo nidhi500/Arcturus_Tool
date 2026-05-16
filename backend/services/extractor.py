@@ -159,27 +159,24 @@ async def enrich_all_features(injected_features):
             raw_steps = clean_text(f.get('steps_to_enable', ''))
             raw_desc = f.get('raw_description', '')
 
-            # Pass raw entries through our master intelligence engine
+           # Pass raw entries through our master intelligence engine
             status, action, impact, priority = analyze_intelligence(title, raw_steps, raw_desc)
 
             # 1. Transform Description into a clean, human sentence block
             polished_description = executive_summary(raw_desc, title)
 
-            # 2. Hardened Smart-Routing System for Steps to Enable (No Data Drop)
+            # 2. Hardened Smart-Routing System for Steps to Enable
             lower_steps = raw_steps.lower()
             
             if "agent" in title.lower() or "agentic" in title.lower():
-                # Enforce our strict corporate AI runtime profile runbook
                 final_steps = "Configure email account integration routes and access parameters via Setup and Maintenance. Ensure targeted end-users are assigned appropriate Generative AI runtime duty roles."
-                status = "Disabled"
-                action = "Setup Required"
-                priority = "High"
+            elif status == "Disabled" and (not raw_steps or len(raw_steps) < 25 or "automatically enabled" in lower_steps):
+                # FIX: If the brain flagged it as disabled but the steps are empty, provide the correct Opt-In direction
+                final_steps = "Requires manual activation via the Functional Setup Manager Opt-In interface under the SCM application workspace."
             elif not raw_steps or len(raw_steps) < 25 or "automatically enabled" in lower_steps and len(raw_steps) < 60:
-                # Truly automatic feature with zero custom engineering instructions or boundaries
                 final_steps = "Automatically enabled. No configuration required."
             else:
-                # CRITICAL PRESERVATION: Oracle has provided specific boundaries, tips, or setups.
-                # Format it beautifully and slice at a clean sentence boundary if it's massive.
+                # Preserve and format custom technical text
                 sentences = re.split(r"(?<=[.!?])\s+", raw_steps)
                 step_blocks = []
                 length_counter = 0
