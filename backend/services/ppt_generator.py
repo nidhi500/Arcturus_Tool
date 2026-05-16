@@ -132,7 +132,7 @@ def add_table_slide(prs, module, items, release, page_no, part_label=""):
     row_count = len(items)
     header_h = 0.35
     available_table_height = Inches(4.2)
-    row_height = available_table_height / row_count
+    row_height = available_table_height // row_count
 
     table_shape = slide.shapes.add_table(row_count + 1, 6, Inches(0.42), Inches(0.95), Inches(9.16), Inches(header_h) + available_table_height)
     table = table_shape.table
