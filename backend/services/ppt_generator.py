@@ -46,6 +46,7 @@ def add_branding(slide, prs, release, page_no):
         rect.fill.fore_color.rgb = c
         rect.line.fill.background()
     
+    # Secure image routing matrix that will NEVER crash the script if assets are missing
     logo_configs = [
         ("assets/arcturus_logo.png", prs.slide_width - Inches(2.05), Inches(0.28), 1.65), 
         ("assets/tid_logo.png", (prs.slide_width // 2) - Inches(0.35), prs.slide_height - Inches(0.85), 0.7)
@@ -54,9 +55,10 @@ def add_branding(slide, prs, release, page_no):
         if os.path.exists(path): 
             try:
                 slide.shapes.add_picture(path, x, y, width=Inches(w))
-            except Exception:
-                pass
-
+            except Exception as img_err:
+                print(f"Skipping logo asset injection: {img_err}")
+                pass # Gracefully skip if image format or path bounds fail
+    
     for txt, x, w, align in [(f"Oracle Upgrade Assessment Profile {release} — Internal Consultancy Reference", 0, prs.slide_width, PP_ALIGN.CENTER), (str(page_no), prs.slide_width - Inches(0.5), 0.4, PP_ALIGN.RIGHT)]:
         tb = slide.shapes.add_textbox(x, prs.slide_height - Inches(0.2), w, Inches(0.2))
         p = tb.text_frame.paragraphs[0]
