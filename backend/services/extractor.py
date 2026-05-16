@@ -143,16 +143,31 @@ async def enrich_all_features(injected_features):
             raw_steps = f.get('steps_to_enable', 'Automatically enabled.')
             raw_desc = f.get('raw_description', '')
 
-            # Pass raw items through our synced intelligence brain
+           # Pass raw items through our synced intelligence brain
             status, action, impact, priority = analyze_intelligence(title, raw_steps, raw_desc)
 
             # Apply the Human-Understandable Executive Summary formatter
             polished_description = executive_summary(raw_desc, title)
 
+            # Formatter for Steps to Enable
+            if "agent" in title.lower() or "agentic" in title.lower():
+                # Provide a professional instruction instead of letting an empty/automatic fallback slip through
+                final_steps = "Configure email account integration routes and access parameters via Setup and Maintenance. Ensure targeted end-users are assigned appropriate Generative AI runtime duty roles."
+            elif status == "Disabled" and raw_steps and "automatically enabled" not in raw_steps.lower():
+                final_steps = raw_steps[:400] + "..." if len(raw_steps) > 400 else raw_steps
+            elif raw_steps and len(raw_steps) > 35 and "automatically enabled" not in raw_steps.lower():
+                # CRITICAL PRESERVATION: If we found real steps, preserve them and sync status
+                final_steps = raw_steps[:400] + "..." if len(raw_steps) > 400 else raw_steps
+                status = "Disabled"
+                action = "Setup Required"
+                priority = "High"
+            else:
+                final_steps = "Automatically enabled. No configuration required."
+
             f.update({
                 "feature_id": f"INV-{idx:03d}",
                 "description": polished_description,
-                "steps_to_enable": raw_steps[:400] + "..." if (status == "Disabled" and len(raw_steps) > 400) else ("Automatically enabled. No configuration required." if status == "Enabled" else raw_steps),
+                "steps_to_enable": final_steps,
                 "delivery_status": status,
                 "action_required": action,
                 "impact": impact,
