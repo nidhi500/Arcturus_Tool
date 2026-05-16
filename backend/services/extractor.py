@@ -88,39 +88,33 @@ async def fetch_detail_page(client, feature):
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 1. DYNAMIC SUB-MODULE HARVESTER (Multi-layered failover parsing)
+            # 1. LIVE DYNAMIC MODULE ELEMENT EXTRACTION
+            # Extracts Oracle's native sub-module categorization directly from the page body tree
             discovered_submodule = ""
             
-            # Layer A: Check standard Oracle readiness sub-header elements
-            sub_header = soup.find('p', class_=re.compile(r'sub-header|subtitle|meta', re.I))
-            if sub_header and len(sub_header.get_text().strip()) < 50:
-                discovered_submodule = sub_header.get_text().strip()
-                
-            # Layer B: Scan breadcrumb trees with flexible selectors
-            if not discovered_submodule:
-                breadcrumb = soup.find(lambda tag: tag.name in ['div', 'ul', 'ol', 'nav'] and 
-                                       any(cl in str(tag.get('class', '')).lower() for cl in ['breadcrumb', 'nav', 'path']))
-                if breadcrumb:
-                    links = breadcrumb.find_all(['a', 'li'])
-                    if len(links) >= 2:
-                        discovered_submodule = links[-1].get_text().strip()
+            # Look for Oracle's standard metadata header block (e.g., "Collaboration Messaging")
+            meta_element = soup.find(lambda tag: tag.name in ['p', 'div', 'span'] and 
+                                     any(cl in str(tag.get('class', '')).lower() for cl in ['sub-header', 'subtitle', 'meta-text']))
+            if meta_element:
+                discovered_submodule = meta_element.get_text().strip()
 
-            # Layer C: Look for explicit labeled text block structures (e.g., "Functional Area: Receiving")
+            # Fallback: Parse out explicitly labeled rows if present (e.g., "Functional Area: Cost Management")
             if not discovered_submodule:
-                labeled_meta = soup.find(lambda tag: tag.name in ['p', 'span', 'div', 'td'] and 
-                                         any(kw in tag.text for kw in ["Functional Area:", "Product:", "Submodule:"]))
-                if labeled_meta:
-                    discovered_submodule = re.sub(r".*?:", "", labeled_meta.get_text()).strip()
+                labeled_tag = soup.find(lambda tag: tag.name in ['p', 'span', 'div', 'td'] and 
+                                        any(kw in tag.text for kw in ["Functional Area:", "Product:", "Submodule:"]))
+                if labeled_tag:
+                    discovered_submodule = re.sub(r".*?:", "", labeled_tag.get_text()).strip()
 
-            # Layer D: Clean up string leaks (if it grabs the main title or code blocks accidentally)
+            # Clean and sanitize the string value
             discovered_submodule = clean_text(discovered_submodule)
-            if discovered_submodule and (len(discovered_submodule) > 45 or "what's new" in discovered_submodule.lower()):
+            
+            # Safety Check: If it accidentally grabbed a giant paragraph or the title, wipe it
+            if discovered_submodule and (len(discovered_submodule) > 50 or "what's new" in discovered_submodule.lower()):
                 discovered_submodule = ""
 
-            # Assign dynamic module with final safety fallback to the original extension payload string
-            feature['dynamic_module'] = discovered_submodule if discovered_submodule else feature.get('module', 'Inventory Management')
+            # Save the discovered sub-module string to the feature package
+            feature['discovered_module'] = discovered_submodule
 
-            
             # 2. Extract Description Text Block
             desc_text = ""
             desc_area = soup.find('section', id=re.compile(r'description|overview', re.I)) or \
@@ -153,7 +147,7 @@ async def fetch_detail_page(client, feature):
 
         except Exception as e:
             print(f"Deep Scrape Error: {e}")
-            feature['dynamic_module'] = feature.get('module', 'Inventory Management')
+            feature['discovered_module'] = ""
             feature['raw_description'] = ""
             feature['steps_to_enable'] = "Automatically enabled."
             feature['bug_ids'] = "None"
@@ -172,8 +166,11 @@ async def enrich_all_features(injected_features):
             raw_steps = clean_text(f.get('steps_to_enable', ''))
             raw_desc = f.get('raw_description', '')
             
-            # PULL DYNAMIC MODULE DIRECTLY FROM SCRAEP HOOK
-            resolved_module = f.get('dynamic_module', 'Inventory Management')
+            # STRICT DYNAMIC OVERWRITE
+            # If the dynamic scraper successfully harvested the page sub-module, use it!
+            # Otherwise, use the baseline extension value as a safety backup.
+            live_submodule = f.get('discovered_module', '')
+            resolved_module = live_submodule if live_submodule else f.get('module', 'Inventory Management')
 
             status, action, impact, priority = analyze_intelligence(title, raw_steps, raw_desc)
             polished_description = executive_summary(raw_desc, title)
@@ -206,7 +203,7 @@ async def enrich_all_features(injected_features):
                 priority = "High"
 
             f.update({
-                "module": resolved_module,  # Beautiful, dynamic sub-module layout value
+                "module": resolved_module,  # Overwritten dynamically from the page DOM
                 "feature_id": f"INV26B-{idx:03d}",
                 "description": polished_description,
                 "steps_to_enable": final_steps,
@@ -220,8 +217,8 @@ async def enrich_all_features(injected_features):
             
             if 'raw_description' in f:
                 del f['raw_description']
-            if 'dynamic_module' in f:
-                del f['dynamic_module']
+            if 'discovered_module' in f:
+                del f['discovered_module']
                 
             final_features.append(f)
             
