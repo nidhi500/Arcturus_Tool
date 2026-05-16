@@ -8,38 +8,28 @@ semaphore = asyncio.Semaphore(10)
 def clean_text(text):
     if not text:
         return ""
-    # Clear out stubborn web carriage returns, tabs, and duplicate spaces
     text = re.sub(r"[\r\n\t]+", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 def executive_summary(text, title):
-    """
-    Polishes raw scraped data into a seamless, human-written executive summary.
-    Guarantees no mid-sentence cuts or ugly trailing ellipses (...).
-    """
     cleaned = clean_text(text)
     if not cleaned or len(cleaned) < 30:
-        return f"This update introduces enhanced capabilities for {title} to optimize functional responsiveness and streamline SCM operations."
+        return f"This update introduces enhanced capabilities for {title} to optimize functional responsiveness and streamline workflows."
 
-    # Clear out redundant introductory phrases that make it sound automated
     cleaned = re.sub(r"^(previously|earlier|in this release|with this update|you can now),?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"key capabilities include:.*$", "", cleaned, flags=re.I)
     cleaned = re.sub(r"to open the.*$", "", cleaned, flags=re.I)
     cleaned = cleaned[0].upper() + cleaned[1:] if cleaned else ""
 
-    # Split text cleanly by sentence boundaries
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    
     summary_sentences = []
     current_length = 0
     
-    # Build a descriptive paragraph sentence-by-sentence up to a safe 350-character threshold
     for sentence in sentences:
         sentence = sentence.strip()
         if not sentence:
             continue
-        # Ensure we always include at least one complete sentence
         if current_length + len(sentence) < 350 or not summary_sentences:
             summary_sentences.append(sentence)
             current_length += len(sentence)
@@ -52,20 +42,16 @@ def executive_summary(text, title):
         
     return final_summary
 
-
 def analyze_intelligence(title, steps, description):
     combined = (title + " " + steps + " " + description).lower()
     lower_title = title.lower()
     
-    # 1. AI Agent Strict Override
     if "agent" in lower_title or "agentic" in lower_title:
         status = "Disabled"
         action = "Setup Required"
-    # 2. Hardened Redwood Opt-In Intercept
     elif "redwood" in lower_title and any(kw in combined for kw in ["opt-in", "opt in", "redesigned page", "activate", "profile option"]):
         status = "Disabled"
         action = "Setup Required"
-    # 3. Standard Dynamic Engine
     elif "automatically enabled." not in steps.lower() and any(kw in combined for kw in ["opt in", "profile option", "setup and maintenance", "privilege", "ora_"]):
         status = "Disabled"
         action = "Setup Required"
@@ -73,7 +59,6 @@ def analyze_intelligence(title, steps, description):
         status = "Enabled"
         action = "No Action Required"
 
-    # Dynamic Impact Evaluation Engine
     if any(kw in combined for kw in ["ai agent", "agentic", "redwood", "workspace", "mobile device", "new user experience"]):
         impact = "Large Scale (UI/UX)"
     elif any(kw in combined for kw in ["rest api", "fbdi", "integration", "algorithm", "bulk patch"]):
@@ -81,7 +66,6 @@ def analyze_intelligence(title, steps, description):
     else:
         impact = "Small Scale"
 
-    # Synced Priority Engine
     if impact == "Large Scale (UI/UX)" or action == "Setup Required":
         priority = "High"
     elif any(kw in combined for kw in ["report", "search filter", "otbi"]):
@@ -92,7 +76,6 @@ def analyze_intelligence(title, steps, description):
     return status, action, impact, priority
 
 async def fetch_detail_page(client, feature):
-    """Deep-scrapes sub-pages directly from the URL bundle packed by the extension."""
     async with semaphore:
         try:
             url = feature.get('url', '')
@@ -105,7 +88,29 @@ async def fetch_detail_page(client, feature):
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Extract Raw Description Text
+            # 1. DYNAMIC SUB-MODULE HARVESTER
+            # Finds Oracle's native breadcrumb link path or page categorization layouts
+            discovered_submodule = ""
+            breadcrumb = soup.find('div', class_=re.compile(r'breadcrumb|nav', re.I)) or \
+                         soup.find('ul', class_=re.compile(r'breadcrumb|nav', re.I))
+            
+            if breadcrumb:
+                links = breadcrumb.find_all('a')
+                if len(links) >= 2:
+                    # Usually the last active link or secondary anchor points to the exact sub-module tracking track
+                    discovered_submodule = links[-1].get_text().strip()
+            
+            # Fallback search option: Look for an overview header block or meta properties
+            if not discovered_submodule:
+                meta_section = soup.find(lambda tag: tag.name in ['p', 'span', 'div'] and 
+                                         any(kw in tag.text for kw in ["Module:", "Product:", "Functional Area:"]))
+                if meta_section:
+                    discovered_submodule = re.sub(r".*?:", "", meta_section.get_text()).strip()
+
+            # Clean and clean the string value; fallback to base extension model value if completely missing
+            feature['dynamic_module'] = clean_text(discovered_submodule) if discovered_submodule else feature.get('module', 'Inventory Management')
+
+            # 2. Extract Description Text Block
             desc_text = ""
             desc_area = soup.find('section', id=re.compile(r'description|overview', re.I)) or \
                         soup.find('div', class_=re.compile(r'section|content', re.I)) or \
@@ -114,11 +119,9 @@ async def fetch_detail_page(client, feature):
                 paras = [p.get_text().strip() for p in desc_area.find_all('p') 
                          if len(p.get_text().strip()) > 40 and "oracle" not in p.get_text().lower()[:15]]
                 desc_text = " ".join(paras[:2])
-            
-            # Save raw description for the intelligence rules to read
             feature['raw_description'] = desc_text
 
-            # Extract Steps to Enable
+            # 3. Extract Steps to Enable Section Nodes
             steps_text = ""
             steps_header = soup.find(lambda tag: tag.name in ['h2', 'h3', 'h4'] and 
                                     any(kw in tag.text for kw in ["Steps to Enable", "How to Enable", "Setup"]))
@@ -131,15 +134,15 @@ async def fetch_detail_page(client, feature):
                     if text_content: 
                         content.append(text_content)
                 steps_text = " ".join(content)
-            
             feature['steps_to_enable'] = clean_text(steps_text) if (steps_text and len(steps_text) > 30) else "Automatically enabled."
 
-            # Scan Oracle Bug Tracker Sequences
+            # 4. Scan System Bug Code Layout Trackers
             bugs = re.findall(r"\b\d{8}\b", soup.get_text())
             feature['bug_ids'] = ", ".join(set(bugs)) if bugs else "None"
 
         except Exception as e:
             print(f"Deep Scrape Error: {e}")
+            feature['dynamic_module'] = feature.get('module', 'Inventory Management')
             feature['raw_description'] = ""
             feature['steps_to_enable'] = "Automatically enabled."
             feature['bug_ids'] = "None"
@@ -147,7 +150,6 @@ async def fetch_detail_page(client, feature):
         return feature
 
 async def enrich_all_features(injected_features):
-    """Processes features injected directly by the extension with high-fidelity validation."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         tasks = [fetch_detail_page(client, f) for f in injected_features]
@@ -158,25 +160,24 @@ async def enrich_all_features(injected_features):
             title = f.get('title', '')
             raw_steps = clean_text(f.get('steps_to_enable', ''))
             raw_desc = f.get('raw_description', '')
+            
+            # PULL DYNAMIC MODULE DIRECTLY FROM SCRAEP HOOK
+            resolved_module = f.get('dynamic_module', 'Inventory Management')
 
-           # Pass raw entries through our master intelligence engine
             status, action, impact, priority = analyze_intelligence(title, raw_steps, raw_desc)
-
-            # 1. Transform Description into a clean, human sentence block
             polished_description = executive_summary(raw_desc, title)
 
-            # 2. Hardened Smart-Routing System for Steps to Enable
             lower_steps = raw_steps.lower()
-            
             if "agent" in title.lower() or "agentic" in title.lower():
                 final_steps = "Configure email account integration routes and access parameters via Setup and Maintenance. Ensure targeted end-users are assigned appropriate Generative AI runtime duty roles."
+                status = "Disabled"
+                action = "Setup Required"
+                priority = "High"
             elif status == "Disabled" and (not raw_steps or len(raw_steps) < 25 or "automatically enabled" in lower_steps):
-                # FIX: If the brain flagged it as disabled but the steps are empty, provide the correct Opt-In direction
                 final_steps = "Requires manual activation via the Functional Setup Manager Opt-In interface under the SCM application workspace."
             elif not raw_steps or len(raw_steps) < 25 or "automatically enabled" in lower_steps and len(raw_steps) < 60:
                 final_steps = "Automatically enabled. No configuration required."
             else:
-                # Preserve and format custom technical text
                 sentences = re.split(r"(?<=[.!?])\s+", raw_steps)
                 step_blocks = []
                 length_counter = 0
@@ -189,14 +190,13 @@ async def enrich_all_features(injected_features):
                 final_steps = " ".join(step_blocks).strip()
                 if not final_steps.endswith("."):
                     final_steps += "."
-                
-                # If there are manual boundaries or steps on the page, it requires evaluation!
                 status = "Disabled"
                 action = "Setup Required"
                 priority = "High"
 
             f.update({
-                "feature_id": f"INV-{idx:03d}",
+                "module": resolved_module,  # Beautiful, dynamic sub-module layout value
+                "feature_id": f"INV26B-{idx:03d}",
                 "description": polished_description,
                 "steps_to_enable": final_steps,
                 "delivery_status": status,
@@ -209,6 +209,8 @@ async def enrich_all_features(injected_features):
             
             if 'raw_description' in f:
                 del f['raw_description']
+            if 'dynamic_module' in f:
+                del f['dynamic_module']
                 
             final_features.append(f)
             
