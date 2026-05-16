@@ -8,48 +8,64 @@ semaphore = asyncio.Semaphore(10)
 def clean_text(text):
     if not text:
         return ""
-    # Strip double spaces, newlines, tabs, and hidden HTML formatting spaces
+    # Clear out stubborn web carriage returns, tabs, and duplicate spaces
+    text = re.sub(r"[\r\n\t]+", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 def executive_summary(text, title):
     """
-    Transforms raw scraped text into human-understandable, 
-    consultant-grade executive summaries.
+    Polishes raw scraped data into a seamless, human-written executive summary.
+    Guarantees no mid-sentence cuts or ugly trailing ellipses (...).
     """
     cleaned = clean_text(text)
     if not cleaned or len(cleaned) < 30:
-        return f"This update introduces enhanced capabilities for {title} to improve operational efficiency and streamline SCM workflows."
+        return f"This update introduces enhanced capabilities for {title} to optimize functional responsiveness and streamline SCM operations."
 
-    # Remove typical awkward web-scraping fragments and boilerplate
+    # Clear out redundant introductory phrases that make it sound automated
     cleaned = re.sub(r"^(previously|earlier|in this release|with this update|you can now),?\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"key capabilities include:.*$", "", cleaned, flags=re.I)
     cleaned = re.sub(r"to open the.*$", "", cleaned, flags=re.I)
-    
-    # Capitalize the very first letter safely
     cleaned = cleaned[0].upper() + cleaned[1:] if cleaned else ""
 
-    # Sentence boundary processing
+    # Split text cleanly by sentence boundaries
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    summary = " ".join(sentences[:2]).strip()
+    
+    summary_sentences = []
+    current_length = 0
+    
+    # Build a descriptive paragraph sentence-by-sentence up to a safe 350-character threshold
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        # Ensure we always include at least one complete sentence
+        if current_length + len(sentence) < 350 or not summary_sentences:
+            summary_sentences.append(sentence)
+            current_length += len(sentence)
+        else:
+            break
 
-    # If it ends awkwardly or is too brief, append a professional concluding anchor sentence
-    if not summary.endswith("."):
-        summary += "."
+    final_summary = " ".join(summary_sentences).strip()
+    if not final_summary.endswith("."):
+        final_summary += "."
         
-    if len(summary) > 400:
-        return summary[:397] + "..."
-    return summary
+    return final_summary
+
 
 def analyze_intelligence(title, steps, description):
     combined = (title + " " + steps + " " + description).lower()
     lower_title = title.lower()
     
-    # CRITICAL OVERRIDE: AI Agents are NEVER enabled out-of-the-box in corporate environments
+    # 1. AI Agent Strict Override
     if "agent" in lower_title or "agentic" in lower_title:
         status = "Disabled"
         action = "Setup Required"
-    # Standard Dynamic Delivery Status & Action Required Engine
+    # 2. Hardened Redwood Opt-In Intercept
+    elif "redwood" in lower_title and any(kw in combined for kw in ["opt-in", "opt in", "redesigned page", "activate", "profile option"]):
+        status = "Disabled"
+        action = "Setup Required"
+    # 3. Standard Dynamic Engine
     elif "automatically enabled." not in steps.lower() and any(kw in combined for kw in ["opt in", "profile option", "setup and maintenance", "privilege", "ora_"]):
         status = "Disabled"
         action = "Setup Required"
@@ -131,7 +147,7 @@ async def fetch_detail_page(client, feature):
         return feature
 
 async def enrich_all_features(injected_features):
-    """Processes features injected directly by the extension."""
+    """Processes features injected directly by the extension with high-fidelity validation."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         tasks = [fetch_detail_page(client, f) for f in injected_features]
@@ -140,29 +156,47 @@ async def enrich_all_features(injected_features):
         final_features = []
         for idx, f in enumerate(raw_results, start=1):
             title = f.get('title', '')
-            raw_steps = f.get('steps_to_enable', 'Automatically enabled.')
+            raw_steps = clean_text(f.get('steps_to_enable', ''))
             raw_desc = f.get('raw_description', '')
 
-           # Pass raw items through our synced intelligence brain
+            # Pass raw entries through our master intelligence engine
             status, action, impact, priority = analyze_intelligence(title, raw_steps, raw_desc)
 
-            # Apply the Human-Understandable Executive Summary formatter
+            # 1. Transform Description into a clean, human sentence block
             polished_description = executive_summary(raw_desc, title)
 
-            # Formatter for Steps to Enable
+            # 2. Hardened Smart-Routing System for Steps to Enable (No Data Drop)
+            lower_steps = raw_steps.lower()
+            
             if "agent" in title.lower() or "agentic" in title.lower():
-                # Provide a professional instruction instead of letting an empty/automatic fallback slip through
+                # Enforce our strict corporate AI runtime profile runbook
                 final_steps = "Configure email account integration routes and access parameters via Setup and Maintenance. Ensure targeted end-users are assigned appropriate Generative AI runtime duty roles."
-            elif status == "Disabled" and raw_steps and "automatically enabled" not in raw_steps.lower():
-                final_steps = raw_steps[:400] + "..." if len(raw_steps) > 400 else raw_steps
-            elif raw_steps and len(raw_steps) > 35 and "automatically enabled" not in raw_steps.lower():
-                # CRITICAL PRESERVATION: If we found real steps, preserve them and sync status
-                final_steps = raw_steps[:400] + "..." if len(raw_steps) > 400 else raw_steps
                 status = "Disabled"
                 action = "Setup Required"
                 priority = "High"
-            else:
+            elif not raw_steps or len(raw_steps) < 25 or "automatically enabled" in lower_steps and len(raw_steps) < 60:
+                # Truly automatic feature with zero custom engineering instructions or boundaries
                 final_steps = "Automatically enabled. No configuration required."
+            else:
+                # CRITICAL PRESERVATION: Oracle has provided specific boundaries, tips, or setups.
+                # Format it beautifully and slice at a clean sentence boundary if it's massive.
+                sentences = re.split(r"(?<=[.!?])\s+", raw_steps)
+                step_blocks = []
+                length_counter = 0
+                for s in sentences:
+                    if length_counter + len(s) < 400 or not step_blocks:
+                        step_blocks.append(s.strip())
+                        length_counter += len(s)
+                    else:
+                        break
+                final_steps = " ".join(step_blocks).strip()
+                if not final_steps.endswith("."):
+                    final_steps += "."
+                
+                # If there are manual boundaries or steps on the page, it requires evaluation!
+                status = "Disabled"
+                action = "Setup Required"
+                priority = "High"
 
             f.update({
                 "feature_id": f"INV-{idx:03d}",
@@ -172,10 +206,10 @@ async def enrich_all_features(injected_features):
                 "action_required": action,
                 "impact": impact,
                 "priority": priority,
+                "bug_ids": f.get('bug_ids', 'None') if f.get('bug_ids', 'None') != "None" else "Not Applicable (New Feature Release)",
                 "notes": f"Automated analytical audit validation completed for {impact} update parameters."
             })
             
-            # Clean up temporary key
             if 'raw_description' in f:
                 del f['raw_description']
                 
